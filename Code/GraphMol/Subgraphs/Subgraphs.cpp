@@ -565,7 +565,7 @@ namespace {
       unsigned int maxRolledRadius;
       for (maxRolledRadius = 0; maxRolledRadius < radius; ++maxRolledRadius) {
         if (nbrStack.empty()) {
-          return maxRolledRadius; 
+          return maxRolledRadius;
         }
 
         std::list<std::pair<int, int>> nextLayer;

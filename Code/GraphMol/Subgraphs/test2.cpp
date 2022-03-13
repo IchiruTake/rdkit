@@ -378,7 +378,7 @@ void test4() {
       pth = findBondEnvironmentOfRadiusN(*mH, 5, rootedAtBond, false, true, &cAtomMap);
       TEST_ASSERT(pth.size() == 0);
       TEST_ASSERT(cAtomMap.size() == 0);
-      cAtomMap.clear(); 
+      cAtomMap.clear();
     }
   
     // ---------------------------------------------------------------------------------

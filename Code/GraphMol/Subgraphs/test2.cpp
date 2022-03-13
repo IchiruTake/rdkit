@@ -68,6 +68,7 @@ void test1() {
   std::cout << "Finished" << std::endl;
 }
 
+
 void test2() {
   std::cout << "-----------------------\n Test2: Atom Environments"
             << std::endl;

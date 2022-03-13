@@ -562,8 +562,8 @@ namespace {
     boost::dynamic_bitset<> &bondsIn, bool useHs, 
     std::unordered_map<unsigned int, unsigned int> *atomMap) {
       
-      unsigned int maxRolledRadius;
-      for (maxRolledRadius = 0; maxRolledRadius < radius; ++maxRolledRadius) {
+      unsigned int i;
+      for (i = 0; i < radius; ++i) {
         if (nbrStack.empty()) {
           break;
         }
@@ -581,14 +581,14 @@ namespace {
             int oAtom = mol.getBondWithIdx(bondIdx)->getOtherAtomIdx(startAtom);
             if (atomMap) {
               if (atomMap->find(oAtom) == atomMap->end()) {
-                (*atomMap)[oAtom] = maxRolledRadius + 1;
+                (*atomMap)[oAtom] = i + 1;
               } else {
-                (*atomMap)[oAtom] = std::min(atomMap->at(oAtom), maxRolledRadius + 1);
+                (*atomMap)[oAtom] = std::min(atomMap->at(oAtom), i + 1);
               }
             }
             // if we're going to do another iteration, then push the neighbors from
             // this round onto the stack
-            if (maxRolledRadius < radius - 1) {
+            if (i < radius - 1) {
               for (const auto bond : mol.atomBonds(mol.getAtomWithIdx(oAtom))) {
                 if (!bondsIn.test(bond->getIdx())) {
                   if (useHs || mol.getAtomWithIdx(bond->getOtherAtomIdx(oAtom))
@@ -602,7 +602,7 @@ namespace {
         }
         nbrStack = std::move(nextLayer);
       }
-      return maxRolledRadius;
+      return i;
     }
 }
 

@@ -428,7 +428,7 @@ void test4() {
 
   {
     // Ring-membered bond;
-    std::string smiles = "C1CCCSSCCC1"; 
+    std::string smiles = "C1CCCNNCCC1"; 
     unsigned int rootedAtBond = 4;
 
     RWMol *mol = SmilesToMol(smiles);
@@ -470,13 +470,17 @@ void test4() {
       TEST_ASSERT(pth.size() == 9);
       TEST_ASSERT(cAtomMap.size() == 9);
       cAtomMap.clear();
-
+      // ---------------------------------------------------------------------------------
       pth = findBondEnvironmentOfRadiusN(*mH, 5, rootedAtBond, false, false, &cAtomMap);
       TEST_ASSERT(pth.size() == 9);
       TEST_ASSERT(cAtomMap.size() == 9);
       cAtomMap.clear();
       
-      // ---------------------------------------------------------------------------------
+      pth = findBondEnvironmentOfRadiusN(*mH, 5, rootedAtBond, false, true, &cAtomMap);
+      TEST_ASSERT(pth.size() == 9);
+      TEST_ASSERT(cAtomMap.size() == 9);
+      cAtomMap.clear();
+      
       pth = findBondEnvironmentOfRadiusN(*mH, 6, rootedAtBond, false, false, &cAtomMap);
       TEST_ASSERT(pth.size() == 9);
       TEST_ASSERT(cAtomMap.size() == 9);
@@ -492,34 +496,34 @@ void test4() {
     // useHs = true
     {
       pth = findBondEnvironmentOfRadiusN(*mH, 1, rootedAtBond, true, false, &cAtomMap);
-      TEST_ASSERT(pth.size() == 3);
-      TEST_ASSERT(cAtomMap.size() == 4);
+      TEST_ASSERT(pth.size() == 5);
+      TEST_ASSERT(cAtomMap.size() == 6);
       cAtomMap.clear();
 
       pth = findBondEnvironmentOfRadiusN(*mH, 2, rootedAtBond, true, false, &cAtomMap);
-      TEST_ASSERT(pth.size() == 9);
-      TEST_ASSERT(cAtomMap.size() == 10);
+      TEST_ASSERT(pth.size() == 11);
+      TEST_ASSERT(cAtomMap.size() == 12);
       cAtomMap.clear();
 
       pth = findBondEnvironmentOfRadiusN(*mH, 3, rootedAtBond, true, false, &cAtomMap);
-      TEST_ASSERT(pth.size() == 15);
-      TEST_ASSERT(cAtomMap.size() == 16);
+      TEST_ASSERT(pth.size() == 17);
+      TEST_ASSERT(cAtomMap.size() == 18);
       cAtomMap.clear();
 
       pth = findBondEnvironmentOfRadiusN(*mH, 4, rootedAtBond, true, false, &cAtomMap);
-      TEST_ASSERT(pth.size() == 21);
-      TEST_ASSERT(cAtomMap.size() == 21);
+      TEST_ASSERT(pth.size() == 23);
+      TEST_ASSERT(cAtomMap.size() == 23);
       cAtomMap.clear();
 
       pth = findBondEnvironmentOfRadiusN(*mH, 5, rootedAtBond, true, false, &cAtomMap);
-      TEST_ASSERT(pth.size() == 23);
-      TEST_ASSERT(cAtomMap.size() == 23);
+      TEST_ASSERT(pth.size() == 25);
+      TEST_ASSERT(cAtomMap.size() == 25);
       cAtomMap.clear();
       
       // ---------------------------------------------------------------------------------
       pth = findBondEnvironmentOfRadiusN(*mH, 6, rootedAtBond, true, false, &cAtomMap);
-      TEST_ASSERT(pth.size() == 23);
-      TEST_ASSERT(cAtomMap.size() == 23);
+      TEST_ASSERT(pth.size() == 25);
+      TEST_ASSERT(cAtomMap.size() == 25);
       cAtomMap.clear();
 
       pth = findBondEnvironmentOfRadiusN(*mH, 6, rootedAtBond, true, true, &cAtomMap);

@@ -679,7 +679,7 @@ PATH_TYPE findBondEnvironmentOfRadiusN(
   // Perform BFS to find the environment
   boost::dynamic_bitset<> bondsIn(mol.getNumBonds());
   res.push_back(rootedAtBond);
-  bondsIn.set(rootedAtBond);
+  bondsIn.set(rootedAtBond); 
   unsigned int maxRolledRadius = findEnvironmentOfRadiusN(mol, radius, res, nbrStack, 
                                                           bondsIn, useHs, atomMap);
   if (enforceSize) {

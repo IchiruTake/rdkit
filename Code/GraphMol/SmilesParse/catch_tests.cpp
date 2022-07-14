@@ -9,7 +9,7 @@
 //
 
 #include "catch.hpp"
-#ifdef RDK_THREADSAFE_SSS
+#ifdef RDK_BUILD_THREADSAFE_SSS
 #include <future>
 #include <thread>
 #endif
@@ -262,7 +262,7 @@ TEST_CASE("github #2257: writing cxsmiles", "[smiles][cxsmiles]") {
     auto mol = "C[C@H](F)[C@H](C)[C@@H](C)Br |a:1,o1:3,5|"_smiles;
     REQUIRE(mol);
     auto smi = MolToCXSmiles(*mol);
-    CHECK(smi == "C[C@H](F)[C@H](C)[C@@H](C)Br |a:1,o1:3,5|");
+    CHECK(smi == "C[C@@H]([C@H](C)F)[C@@H](C)Br |a:2,o1:1,5|");
   }
 
   SECTION("enhanced stereo 2") {
@@ -277,9 +277,9 @@ TEST_CASE("github #2257: writing cxsmiles", "[smiles][cxsmiles]") {
         "C[C@@H]1N[C@H](C)[C@@H]([C@H](C)[C@@H]1C)C1[C@@H](C)O[C@@H](C)[C@@H](C)[C@H]1C |a:5,o1:1,8,o2:14,16,&1:11,18,&2:3,6,r|"_smiles;
     REQUIRE(mol);
     auto smi = MolToCXSmiles(*mol);
-    CHECK(smi ==
-          "C[C@@H]1N[C@H](C)[C@H](C2[C@@H](C)O[C@@H](C)[C@@H](C)[C@H]2C)[C@H]("
-          "C)[C@@H]1C |a:5,o1:1,18,o2:10,12,&1:3,16,&2:7,14|");
+    CHECK(
+        smi ==
+        "C[C@@H]1[C@H](C)[C@H](C)N[C@H](C)[C@@H]1C1[C@@H](C)O[C@@H](C)[C@@H](C)[C@H]1C |a:9,o1:2,4,o2:14,16,&1:1,7,&2:11,18|");
   }
 
   SECTION("enhanced stereo 4") {
@@ -1861,12 +1861,12 @@ M  END)CTAB"_ctab;
     REQUIRE(mol);
     auto csmiles = MolToSmiles(*mol);
     std::cerr << csmiles << std::endl;
+    // clang-format off
     CHECK(
         csmiles ==
-        "CC(=O)N[C@@H](CCCC/N=C/C1=C/"
-        "C[C@H]2[C@@]3(CC[C@]2(C)C[C@H]2[C@@H]1C(=O)C[C@@]2(C)O)O[C@@H](C=C(C)"
-        "C)C[C@@H]3C)C(=O)O");
+        "CC(=O)N[C@@H](CCCC/N=C/C1=C/C[C@@H]2[C@](C)(CC[C@@]23O[C@@H](C=C(C)C)C[C@@H]3C)C[C@H]2[C@@H]1C(=O)C[C@@]2(C)O)C(=O)O");
   }
+  // clang-format on
 }
 
 TEST_CASE(
@@ -1921,28 +1921,6 @@ TEST_CASE("Github #4981: Invalid SMARTS for negated single-atoms", "[smarts]") {
   }
 }
 
-#ifdef RDK_THREADSAFE_SSS
-namespace {
-void runblock(const ROMol *mol) { MolToSmiles(*mol); }
-}  // namespace
-
-TEST_CASE("Github #5245: Multithreaded smiles testing") {
-  SECTION("smiles from the same molecule") {
-    auto mol = "CCCCCCCCC"_smiles;
-    REQUIRE(mol);
-    std::vector<std::future<void>> tg;
-    unsigned int count = 100;
-    for (unsigned int i = 0; i < count; ++i) {
-      tg.emplace_back(std::async(std::launch::async, runblock, mol.get()));
-    }
-    for (auto &fut : tg) {
-      fut.get();
-    }
-    tg.clear();
-  }
-}
-#endif
-
 TEST_CASE("Pol and Mod atoms in CXSMILES", "[cxsmiles]") {
   SECTION("Pol basics") {
     auto mol = "CC* |$;;Pol_p$|"_smiles;
@@ -1969,8 +1947,8 @@ TEST_CASE("Pol and Mod atoms in CXSMILES", "[cxsmiles]") {
 TEST_CASE("empty atom label block", "[cxsmiles]") {
   SECTION("basics") {
     auto m = R"CTAB(
-  MJ201100                      
-
+  MJ201100
+                        
   8  8  0  0  0  0  0  0  0  0999 V2000
    -1.0491    1.5839    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0
    -1.7635    1.1714    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0
@@ -1994,5 +1972,16 @@ M  END)CTAB"_ctab;
     m->clearConformers();
     auto smi = MolToCXSmiles(*m);
     CHECK(smi.find("$") == std::string::npos);
+  }
+}
+
+TEST_CASE("Github #5372: errors with fragments and doRandom=True") {
+  SECTION("basics") {
+    auto m = "C.C"_smiles;
+    REQUIRE(m);
+    SmilesWriteParams ps;
+    ps.doRandom = true;
+    auto smi = MolToSmiles(*m, ps);
+    CHECK(smi == "C.C");
   }
 }

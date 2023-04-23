@@ -214,7 +214,7 @@ void setTerminalAtomCoords(ROMol &mol, unsigned int idx,
         RDGeom::Point3D nbr1Pos = (*cfi)->getAtomPos(nbr1->getIdx());
         // get a normalized vector pointing away from the neighbor:
         nbr1Vect = nbr1Pos - otherPos;
-        if (fabs(nbr1Vect.lengthSq()) < 1e-4) {
+        if (nbr1Vect.lengthSq() < 1e-4) {
           // no difference, which likely indicates that we have redundant atoms.
           // just put it on top of the heavy atom. This was #678
           (*cfi)->setAtomPos(idx, otherPos);
@@ -304,8 +304,7 @@ void setTerminalAtomCoords(ROMol &mol, unsigned int idx,
         otherPos = (*cfi)->getAtomPos(otherIdx);
         nbr1Vect = otherPos - (*cfi)->getAtomPos(nbr1->getIdx());
         nbr2Vect = otherPos - (*cfi)->getAtomPos(nbr2->getIdx());
-        if (fabs(nbr1Vect.lengthSq()) < 1e-4 ||
-            fabs(nbr2Vect.lengthSq()) < 1e-4) {
+        if (nbr1Vect.lengthSq() < 1e-4 || nbr2Vect.lengthSq() < 1e-4) {
           // no difference, which likely indicates that we have redundant atoms.
           // just put it on top of the heavy atom. This was #678
           (*cfi)->setAtomPos(idx, otherPos);
@@ -360,51 +359,33 @@ void setTerminalAtomCoords(ROMol &mol, unsigned int idx,
       // --------------------------------------------------------------------------
       boost::tie(nbrIdx, endNbrs) = mol.getAtomNeighbors(otherAtom);
 
-      if (otherAtom->hasProp(common_properties::_CIPCode)) {
-        // if the central atom is chiral, we'll order the neighbors
-        // by CIP rank:
-        std::vector<std::pair<unsigned int, int>> nbrs;
-        while (nbrIdx != endNbrs) {
-          if (*nbrIdx != idx) {
-            const Atom *tAtom = mol.getAtomWithIdx(*nbrIdx);
-            unsigned int cip = 0;
-            tAtom->getPropIfPresent<unsigned int>(common_properties::_CIPRank,
-                                                  cip);
-            nbrs.emplace_back(cip, rdcast<int>(*nbrIdx));
+      // We're using chiral tag for checking chirality, so we just take the
+      // initial order
+      while (nbrIdx != endNbrs) {
+        if (*nbrIdx != idx) {
+          if (!nbr1) {
+            nbr1 = mol.getAtomWithIdx(*nbrIdx);
+          } else if (!nbr2) {
+            nbr2 = mol.getAtomWithIdx(*nbrIdx);
+          } else {
+            nbr3 = mol.getAtomWithIdx(*nbrIdx);
           }
-          ++nbrIdx;
         }
-        std::sort(nbrs.begin(), nbrs.end());
-        nbr1 = mol.getAtomWithIdx(nbrs[0].second);
-        nbr2 = mol.getAtomWithIdx(nbrs[1].second);
-        nbr3 = mol.getAtomWithIdx(nbrs[2].second);
-      } else {
-        // central atom isn't chiral, so the neighbor ordering isn't important:
-        while (nbrIdx != endNbrs) {
-          if (*nbrIdx != idx) {
-            if (!nbr1) {
-              nbr1 = mol.getAtomWithIdx(*nbrIdx);
-            } else if (!nbr2) {
-              nbr2 = mol.getAtomWithIdx(*nbrIdx);
-            } else {
-              nbr3 = mol.getAtomWithIdx(*nbrIdx);
-            }
-          }
-          ++nbrIdx;
-        }
+        ++nbrIdx;
       }
+
       TEST_ASSERT(nbr1);
       TEST_ASSERT(nbr2);
       TEST_ASSERT(nbr3);
+
       for (auto cfi = mol.beginConformers(); cfi != mol.endConformers();
            ++cfi) {
         otherPos = (*cfi)->getAtomPos(otherIdx);
         nbr1Vect = otherPos - (*cfi)->getAtomPos(nbr1->getIdx());
         nbr2Vect = otherPos - (*cfi)->getAtomPos(nbr2->getIdx());
         nbr3Vect = otherPos - (*cfi)->getAtomPos(nbr3->getIdx());
-        if (fabs(nbr1Vect.lengthSq()) < 1e-4 ||
-            fabs(nbr2Vect.lengthSq()) < 1e-4 ||
-            fabs(nbr3Vect.lengthSq()) < 1e-4) {
+        if (nbr1Vect.lengthSq() < 1e-4 || nbr2Vect.lengthSq() < 1e-4 ||
+            nbr3Vect.lengthSq() < 1e-4) {
           // no difference, which likely indicates that we have redundant atoms.
           // just put it on top of the heavy atom. This was #678
           (*cfi)->setAtomPos(idx, otherPos);
@@ -433,9 +414,13 @@ void setTerminalAtomCoords(ROMol &mol, unsigned int idx,
               RDGeom::Point3D v2 = nbr1Vect - nbr3Vect;
               RDGeom::Point3D v3 = nbr2Vect - nbr3Vect;
               double vol = v1.dotProduct(v2.crossProduct(v3));
-              // FIX: this is almost certainly wrong and should use the chiral
-              // tag
-              if ((cipCode == "S" && vol < 0) || (cipCode == "R" && vol > 0)) {
+
+              if ((otherAtom->getChiralTag() ==
+                       Atom::ChiralType::CHI_TETRAHEDRAL_CCW &&
+                   vol < 0) ||
+                  (otherAtom->getChiralTag() ==
+                       Atom::ChiralType::CHI_TETRAHEDRAL_CW &&
+                   vol > 0)) {
                 dirVect *= -1;
               }
             }
@@ -463,6 +448,7 @@ void setTerminalAtomCoords(ROMol &mol, unsigned int idx,
             dirVect = pickBisector(nbr3Vect, nbr1Vect, nbr2Vect);
           }
         }
+
         dirVect.normalize();
         atomPos = otherPos + dirVect * ((*cfi)->is3D() ? bondLength : 1.0);
         (*cfi)->setAtomPos(idx, atomPos);
@@ -494,9 +480,8 @@ void addHs(RWMol &mol, bool explicitOnly, bool addCoords,
   // for their coordinates
   unsigned int numAddHyds = 0;
   for (auto at : mol.atoms()) {
-    if (!onlyOnAtoms ||
-        std::find(onlyOnAtoms->begin(), onlyOnAtoms->end(), at->getIdx()) !=
-            onlyOnAtoms->end()) {
+    if (!onlyOnAtoms || std::find(onlyOnAtoms->begin(), onlyOnAtoms->end(),
+                                  at->getIdx()) != onlyOnAtoms->end()) {
       numAddHyds += at->getNumExplicitHs();
       if (!explicitOnly) {
         numAddHyds += at->getNumImplicitHs();
@@ -514,9 +499,8 @@ void addHs(RWMol &mol, bool explicitOnly, bool addCoords,
 
   unsigned int stopIdx = mol.getNumAtoms();
   for (unsigned int aidx = 0; aidx < stopIdx; ++aidx) {
-    if (onlyOnAtoms &&
-        std::find(onlyOnAtoms->begin(), onlyOnAtoms->end(), aidx) ==
-            onlyOnAtoms->end()) {
+    if (onlyOnAtoms && std::find(onlyOnAtoms->begin(), onlyOnAtoms->end(),
+                                 aidx) == onlyOnAtoms->end()) {
       continue;
     }
 
@@ -767,7 +751,7 @@ void molRemoveH(RWMol &mol, unsigned int idx, bool updateExplicitCount) {
     sg.removeParentAtomWithIdx(idx);
 
     for (auto &sap : sg.getAttachPoints()) {
-      if (sap.lvIdx == idx) {
+      if (sap.lvIdx == static_cast<int>(idx)) {
         sap.lvIdx = -1;
       }
     }
@@ -928,8 +912,9 @@ void filter_sgroup_emptying_hydrogens(const ROMol &mol,
     auto no_atoms = atoms.empty() ||
                     std::all_of(atoms.begin(), atoms.end(), would_remove_atom);
     if (no_atoms) {
-      auto no_patoms = patoms.empty() || std::all_of(patoms.begin(), patoms.end(),
-                                                     would_remove_atom);
+      auto no_patoms =
+          patoms.empty() ||
+          std::all_of(patoms.begin(), patoms.end(), would_remove_atom);
       if (no_patoms) {
         for (auto atom : atoms) {
           atomsToRemove.set(atom, false);
@@ -981,9 +966,9 @@ void removeHs(RWMol &mol, const RemoveHsParameters &ps, bool sanitize) {
 
   // Once we know which H atoms would be removed, filter out those that
   // would cause any SGroups to become empty
-  if (ps.removeInSGroups)  {
+  if (ps.removeInSGroups) {
     filter_sgroup_emptying_hydrogens(mol, atomsToRemove);
- }
+  }
 
   // now that we know which atoms need to be removed, go ahead and remove them
   // NOTE: there's too much complexity around stereochemistry here
@@ -1073,8 +1058,8 @@ bool isQueryH(const Atom *atom) {
     }
   }
 
-  if (atom->getDegree() != 1) {
-    // only degree 1
+  if (!(atom->getDegree() <= 1)) {
+    // bonded and unbonded H atoms will continue rest will be returned
     return false;
   }
 
@@ -1138,7 +1123,7 @@ bool isQueryH(const Atom *atom) {
 //   - By default all hydrogens are removed, however if
 //     merge_unmapped_only is true, any hydrogen participating
 //     in an atom map will be retained
-void mergeQueryHs(RWMol &mol, bool mergeUnmappedOnly) {
+void mergeQueryHs(RWMol &mol, bool mergeUnmappedOnly, bool mergeIsotopes) {
   std::vector<unsigned int> atomsToRemove;
 
   boost::dynamic_bitset<> hatoms(mol.getNumAtoms());
@@ -1156,8 +1141,11 @@ void mergeQueryHs(RWMol &mol, bool mergeUnmappedOnly) {
       while (begin != end) {
         if (hatoms[*begin]) {
           Atom &bgn = *mol.getAtomWithIdx(*begin);
-          if (!mergeUnmappedOnly ||
-              !bgn.hasProp(common_properties::molAtomMapNumber)) {
+          bool checkUnmapped =
+              !mergeUnmappedOnly ||
+              !bgn.hasProp(common_properties::molAtomMapNumber);
+          bool checkIsotope = mergeIsotopes || bgn.getIsotope() == 0;
+          if (checkUnmapped && checkIsotope) {
             atomsToRemove.push_back(rdcast<unsigned int>(*begin));
             ++numHsToRemove;
           }
@@ -1202,7 +1190,7 @@ void mergeQueryHs(RWMol &mol, bool mergeUnmappedOnly) {
           auto *rsq = dynamic_cast<RecursiveStructureQuery *>(atom->getQuery());
           CHECK_INVARIANT(rsq, "could not convert recursive structure query");
           RWMol *rqm = new RWMol(*rsq->getQueryMol());
-          mergeQueryHs(*rqm, mergeUnmappedOnly);
+          mergeQueryHs(*rqm, mergeUnmappedOnly, mergeIsotopes);
           rsq->setQueryMol(rqm);
         }
 
@@ -1216,7 +1204,7 @@ void mergeQueryHs(RWMol &mol, bool mergeUnmappedOnly) {
             auto *rsq = dynamic_cast<RecursiveStructureQuery *>(qry.get());
             CHECK_INVARIANT(rsq, "could not convert recursive structure query");
             RWMol *rqm = new RWMol(*rsq->getQueryMol());
-            mergeQueryHs(*rqm, mergeUnmappedOnly);
+            mergeQueryHs(*rqm, mergeUnmappedOnly, mergeIsotopes);
             rsq->setQueryMol(rqm);
           } else if (qry->beginChildren() != qry->endChildren()) {
             childStack.insert(childStack.end(), qry->beginChildren(),
@@ -1233,9 +1221,10 @@ void mergeQueryHs(RWMol &mol, bool mergeUnmappedOnly) {
   }
   mol.commitBatchEdit();
 };
-ROMol *mergeQueryHs(const ROMol &mol, bool mergeUnmappedOnly) {
+ROMol *mergeQueryHs(const ROMol &mol, bool mergeUnmappedOnly,
+                    bool mergeIsotopes) {
   auto *res = new RWMol(mol);
-  mergeQueryHs(*res, mergeUnmappedOnly);
+  mergeQueryHs(*res, mergeUnmappedOnly, mergeIsotopes);
   return static_cast<ROMol *>(res);
 };
 

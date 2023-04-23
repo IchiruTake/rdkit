@@ -8,6 +8,14 @@
 //  of the RDKit source tree.
 //
 #include <GraphMol/MolDraw2D/MolDraw2D.h>
+#include <GraphMol/FileParsers/MolFileStereochem.h>
+#include <GraphMol/MolTransforms/MolTransforms.h>
+#include <GraphMol/FileParsers/FileParsers.h>
+#include <GraphMol/Chirality.h>
+#ifdef RDK_BUILD_CAIRO_SUPPORT
+#include <GraphMol/MolDraw2D/MolDraw2DCairo.h>
+#endif
+#include <GraphMol/MolDraw2D/MolDraw2DSVG.h>
 #include <GraphMol/MolDraw2D/MolDraw2DUtils.h>
 
 #include <GraphMol/RWMol.h>
@@ -22,6 +30,7 @@
 #include <RDGeneral/BoostEndInclude.h>
 #include <limits>
 #include <cmath>
+#include <sys/stat.h>
 #include <Numerics/Conrec.h>
 
 namespace RDKit {
@@ -42,11 +51,9 @@ bool isAtomCandForChiralH(const RWMol &mol, const Atom *atom) {
 void prepareMolForDrawing(RWMol &mol, bool kekulize, bool addChiralHs,
                           bool wedgeBonds, bool forceCoords, bool wavyBonds) {
   if (kekulize) {
-    try {
-      MolOps::Kekulize(mol, false);  // kekulize, but keep the aromatic flags!
-    } catch (const RDKit::AtomKekulizeException &e) {
-      BOOST_LOG(rdInfoLog) << e.what() << std::endl;
-    }
+    RDLog::LogStateSetter blocker;
+    MolOps::KekulizeIfPossible(
+        mol, false);  // kekulize, but keep the aromatic flags!
   }
   if (addChiralHs) {
     std::vector<unsigned int> chiralAts;
@@ -83,9 +90,11 @@ void prepareAndDrawMolecule(MolDraw2D &drawer, const ROMol &mol,
                             const std::map<int, DrawColour> *highlight_atom_map,
                             const std::map<int, DrawColour> *highlight_bond_map,
                             const std::map<int, double> *highlight_radii,
-                            int confId, bool kekulize) {
+                            int confId, bool kekulize, bool addChiralHs,
+                            bool wedgeBonds, bool forceCoords, bool wavyBonds) {
   RWMol cpy(mol);
-  prepareMolForDrawing(cpy, kekulize);
+  prepareMolForDrawing(cpy, kekulize, addChiralHs, wedgeBonds, forceCoords,
+                       wavyBonds);
   // having done the prepare, we don't want to do it again in drawMolecule.
   bool old_prep_mol = drawer.drawOptions().prepareMolsBeforeDrawing;
   drawer.drawOptions().prepareMolsBeforeDrawing = false;
@@ -95,10 +104,16 @@ void prepareAndDrawMolecule(MolDraw2D &drawer, const ROMol &mol,
   drawer.drawOptions().prepareMolsBeforeDrawing = old_prep_mol;
 }
 
-void updateDrawerParamsFromJSON(MolDraw2D &drawer, const char *json) {
+void updateMolDrawOptionsFromJSON(MolDrawOptions &opts, const char *json) {
   PRECONDITION(json, "no parameter string");
-  updateDrawerParamsFromJSON(drawer, std::string(json));
+  updateMolDrawOptionsFromJSON(opts, std::string(json));
 };
+
+RDKIT_MOLDRAW2D_EXPORT void updateDrawerParamsFromJSON(MolDraw2D &drawer,
+                                                       const char *json) {
+  updateMolDrawOptionsFromJSON(drawer.drawOptions(), json);
+}
+
 #define PT_OPT_GET(opt) opts.opt = pt.get(#opt, opts.opt)
 
 void get_rgba(const boost::property_tree::ptree &node, DrawColour &colour) {
@@ -141,13 +156,13 @@ void get_colour_palette_option(boost::property_tree::ptree *pt, const char *pnm,
   }
 }
 
-void updateDrawerParamsFromJSON(MolDraw2D &drawer, const std::string &json) {
+void updateMolDrawOptionsFromJSON(MolDrawOptions &opts,
+                                  const std::string &json) {
   if (json == "") {
     return;
   }
   std::istringstream ss;
   ss.str(json);
-  MolDrawOptions &opts = drawer.drawOptions();
   boost::property_tree::ptree pt;
   boost::property_tree::read_json(ss, pt);
   PT_OPT_GET(atomLabelDeuteriumTritium);
@@ -195,13 +210,16 @@ void updateDrawerParamsFromJSON(MolDraw2D &drawer, const std::string &json) {
   PT_OPT_GET(variableAtomRadius);
   PT_OPT_GET(includeChiralFlagLabel);
   PT_OPT_GET(simplifiedStereoGroupLabel);
+  PT_OPT_GET(unspecifiedStereoIsUnknown);
   PT_OPT_GET(singleColourWedgeBonds);
   PT_OPT_GET(useMolBlockWedging);
   PT_OPT_GET(scalingFactor);
   PT_OPT_GET(drawMolsSameScale);
+  PT_OPT_GET(useComplexQueryAtomSymbols);
 
   get_colour_option(&pt, "highlightColour", opts.highlightColour);
   get_colour_option(&pt, "backgroundColour", opts.backgroundColour);
+  get_colour_option(&pt, "queryColour", opts.queryColour);
   get_colour_option(&pt, "legendColour", opts.legendColour);
   get_colour_option(&pt, "symbolColour", opts.symbolColour);
   get_colour_option(&pt, "annotationColour", opts.annotationColour);
@@ -214,6 +232,11 @@ void updateDrawerParamsFromJSON(MolDraw2D &drawer, const std::string &json) {
           item.second.get_value<std::string>();
     }
   }
+}
+
+RDKIT_MOLDRAW2D_EXPORT void updateDrawerParamsFromJSON(
+    MolDraw2D &drawer, const std::string &json) {
+  updateMolDrawOptionsFromJSON(drawer.drawOptions(), json);
 }
 
 void contourAndDrawGrid(MolDraw2D &drawer, const double *grid,
@@ -363,7 +386,6 @@ void contourAndDrawGaussians(MolDraw2D &drawer,
       maxP.y += params.extraGridPadding;
     }
     drawer.setScale(drawer.width(), drawer.height(), minP, maxP, mol);
-
   }
 
   size_t nx = (size_t)ceil(drawer.range().x / params.gridResolution) + 1;
@@ -401,6 +423,93 @@ void contourAndDrawGaussians(MolDraw2D &drawer,
   contourAndDrawGrid(drawer, grid.get(), xcoords, ycoords, nContours, levels,
                      paramsCopy);
 };
+
+// ****************************************************************************
+void drawMolACS1996(MolDraw2D &drawer, const ROMol &mol,
+                    const std::string &legend,
+                    const std::vector<int> *highlight_atoms,
+                    const std::vector<int> *highlight_bonds,
+                    const std::map<int, DrawColour> *highlight_atom_map,
+                    const std::map<int, DrawColour> *highlight_bond_map,
+                    const std::map<int, double> *highlight_radii, int confId) {
+  if (drawer.width() != -1 || drawer.height() != -1) {
+    BOOST_LOG(rdWarningLog)
+        << "ACS drawing mode works best with a flexiCanvas i.e. a drawer"
+        << " created with width and height of -1.  The scale will be fixed,"
+        << " and that may not look great with a pre-determined size."
+        << std::endl;
+  }
+  auto setAndGo = [&](const ROMol &theMol) -> void {
+    auto meanBondLen = MolDraw2DUtils::meanBondLength(theMol, confId);
+    setACS1996Options(drawer.drawOptions(), meanBondLen);
+    drawer.drawMolecule(theMol, legend, highlight_atoms, highlight_bonds,
+                        highlight_atom_map, highlight_bond_map, highlight_radii,
+                        confId);
+  };
+  if (!mol.getNumConformers()) {
+    // compute 2D coordinates in a standard orientation.  This needs to be
+    // done on a copy because mol is const.
+    const bool canonOrient = true;
+    RWMol cpy(mol);
+    RDDepict::compute2DCoords(cpy, nullptr, canonOrient);
+    setAndGo(cpy);
+  } else {
+    setAndGo(mol);
+  }
+}
+
+// ****************************************************************************
+void setACS1996Options(MolDrawOptions &opts, double meanBondLen) {
+  opts.bondLineWidth = 0.6;
+  opts.scaleBondWidth = false;
+  // the guideline is for a bond length of 14.4px, and we set things up
+  // in pixels per Angstrom.
+  opts.scalingFactor = 14.4 / meanBondLen;
+  // setting the fixedBondLength means the drawing won't be scaled
+  // up in a drawer of defined size, so the bond length won't exceed
+  // 14.4 pixels.
+  opts.fixedBondLength = 14.4 / meanBondLen;
+  // offset for multiple bonds is 18% of the bond length.
+  opts.multipleBondOffset = 0.18;
+  opts.highlightBondWidthMultiplier = 32;
+  setMonochromeMode(opts, DrawColour(0.0, 0.0, 0.0), DrawColour(1.0, 1.0, 1.0));
+
+  opts.fixedFontSize = 10;
+  opts.additionalAtomLabelPadding = 0.066;
+  // The guidelines say Arial font, which is not a free font.  A close
+  // approximation is FreeSans, but that is under GPL v3.0, so can't be
+  // embedded.  Use it if it's there, but fall back on the Roboto font
+  // which uses an Apache 2.0 license and is also fairly close to Arial.
+  // It is up to the user to put the FreeSans.ttf in the right place.
+  // If the user has already specified a fontFile, assume they know
+  // what they're doing and use it.
+  if (opts.fontFile.empty()) {
+    const char *rdbase = getenv("RDBASE");
+    bool have_free_sans = false;
+    if (rdbase) {
+      opts.fontFile = std::string(rdbase) + "/Data/Fonts/FreeSans.ttf";
+      struct stat buffer;
+      have_free_sans = (stat(opts.fontFile.c_str(), &buffer) == 0);
+    }
+    if (!rdbase || !have_free_sans) {
+      opts.fontFile = "BuiltinRobotoRegular";
+    }
+  }
+}
+
+// ****************************************************************************
+double meanBondLength(const ROMol &mol, int confId) {
+  double bondLen = 0.0;
+  if (mol.getNumBonds()) {
+    auto conf = mol.getConformer(confId);
+    for (auto bond : mol.bonds()) {
+      bondLen += MolTransforms::getBondLength(conf, bond->getBeginAtomIdx(),
+                                              bond->getEndAtomIdx());
+    }
+    bondLen /= mol.getNumBonds();
+  }
+  return bondLen;
+}
 
 }  // namespace MolDraw2DUtils
 }  // namespace RDKit
